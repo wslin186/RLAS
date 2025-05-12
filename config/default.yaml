@@ -1,0 +1,46 @@
+# Tushare 接口 Token
+tushare_token: "07f4c7a56ed3b7a92ab538f994e77e71d59fc47b44177799a1848aeb"
+
+data:
+  # 抓取数据起止日期（YYYYMMDD）
+  start_date: "20150101"
+  end_date:   "20241231"
+  # 标的列表，支持多只股票，例如：["000001.SZ", "600000.SH"]
+  tickers:
+      - "000001.SZ"
+  # 数据周期：D（日线）、15min、30min 等
+  time_frame: "D"
+
+env:
+  # 观测窗口大小
+  window_size: 20
+  # 初始资金
+  initial_cash: 1000000
+  # 交易手续费比例
+  commission: 0.0003
+  # 滑点比例
+  slippage: 0.0001
+
+model:
+  # 折扣因子
+  gamma: 0.99
+  # 学习率
+  learning_rate: 0.0003
+  # 经验回放池大小
+  buffer_size: 100000
+  # 批量大小
+  batch_size: 256
+  # 软更新系数
+  tau: 0.005
+  # 动作噪声标准差
+  action_noise_sigma: 0.1
+
+train:
+  # 训练总步数
+  total_timesteps: 10000
+  # 检查点保存频率（步数）
+  save_freq: 100000
+  # 检查点文件存放目录
+  checkpoint_dir: "models/checkpoints"
+  # 日志文件
+  log_file: "logs/train.log"
