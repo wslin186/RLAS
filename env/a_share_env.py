@@ -10,6 +10,7 @@ class AShareEnv(gym.Env):
       - No-short, no-leverage trading constraints
       - Commission & slippage costs
       - Episode reward logging for Monitor compatibility
+      - Support random start for robust evaluation
     """
     metadata = {'render_modes': ['human']}
 
@@ -41,15 +42,25 @@ class AShareEnv(gym.Env):
             dtype=np.float32
         )
 
-        self.reset()
-
-    def reset(self, seed=None, options=None):  # Gymnasium API
+    def reset(self, seed=None, options=None, random_start=False):
+        """
+        重置环境状态。
+        如果 random_start=True，则随机选择起始点；
+        否则从固定窗口后位置开始。
+        返回 obs, info（Gymnasium API）。
+        """
         super().reset(seed=seed)
-        self.current_step = self.window_size
+        # 随机起点或固定起点
+        if random_start:
+            self.current_step = np.random.randint(self.window_size, len(self.raw_data))
+        else:
+            self.current_step = self.window_size
+        # 初始化资金和持仓
         self.cash = self.initial_cash
         self.shares = 0.0
         self.total_value = self.cash
         self._ep_reward = 0.0
+
         obs = self._get_obs()
         return obs, {}
 
@@ -69,7 +80,10 @@ class AShareEnv(gym.Env):
 
         return np.hstack([obs_vals, cash_col, pos_col])
 
-    def step(self, action):  # Gymnasium API
+    def step(self, action):
+        """
+        执行动作，更新状态，返回 obs, reward, terminated, truncated, info
+        """
         # 1) 解包并限制 action
         pct = float(action[0])
         pct = np.clip(pct, -0.999, 0.999)
@@ -105,12 +119,11 @@ class AShareEnv(gym.Env):
         # 7) 推进
         self.current_step += 1
         done = self.current_step >= len(self.raw_data)
+        terminated = done
+        truncated = False
 
-        # 8) 生成 obs 或结束 obs
-        if not done:
-            obs = self._get_obs()
-        else:
-            obs = np.zeros(self.observation_space.shape, dtype=np.float32)
+        # 8) 生成 obs
+        obs = self._get_obs() if not done else np.zeros(self.observation_space.shape, dtype=np.float32)
 
         # 9) episode 信息
         info = {}
@@ -118,9 +131,6 @@ class AShareEnv(gym.Env):
             ep_len = self.current_step - self.window_size
             info = {'episode': {'r': float(self._ep_reward), 'l': ep_len}}
 
-        # 10) 区分 terminated 和 truncated
-        terminated = done
-        truncated = False
         return obs, reward, terminated, truncated, info
 
     def render(self, mode='human'):

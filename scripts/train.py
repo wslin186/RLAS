@@ -8,7 +8,7 @@ from stable_baselines3 import DDPG
 from stable_baselines3.common.noise import NormalActionNoise
 from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv
 
 from data.loader import DataLoader
 from env.a_share_env import AShareEnv
@@ -16,17 +16,22 @@ from utils.logger import setup_logger
 
 class NaNRewardStopper(BaseCallback):
     """
-    Callback to stop training if a NaN or Inf reward is encountered.
+    Callback to stop training if a NaN or Inf reward is encountered across any environment.
     """
     def __init__(self, verbose=0):
         super().__init__(verbose)
 
     def _on_step(self) -> bool:
-        # Check last reward
-        reward = self.locals.get('rewards') or []
-        if reward and (np.isnan(reward[-1]) or np.isinf(reward[-1])):
+        # rewards can be a numpy array when using VecEnv
+        rewards = self.locals.get('rewards', None)
+        if rewards is None:
+            return True
+        # convert to numpy array
+        rewards_arr = np.array(rewards)
+        # check if any is nan or inf
+        if np.any(np.isnan(rewards_arr)) or np.any(np.isinf(rewards_arr)):
             if self.verbose > 0:
-                print(f"[NaNRewardStopper] Stopping training: encountered reward={reward[-1]}")
+                print(f"[NaNRewardStopper] Stopping training: encountered rewards={rewards_arr}")
             return False
         return True
 
@@ -42,7 +47,7 @@ def main():
     logger = setup_logger('train', cfg['train']['log_file'])
     logger.info('Configuration loaded from %s', cfg_path)
 
-    # 3. 数据加载与预处理
+    # 3. 数据加载与特征工程
     loader = DataLoader(
         token=cfg['tushare_token'],
         start_date=cfg['data']['start_date'],
@@ -55,21 +60,36 @@ def main():
     df = loader.feature_engineer(raw_df)
     logger.info('Processed data rows: %d', len(df))
 
-    # 4. 构建环境并包装
-    env = AShareEnv(df, cfg['env'])
-    env = Monitor(env)
-    env = DummyVecEnv([lambda: env])
+    # 4. 划分训练/测试集
+    test_ratio = cfg['data'].get('test_ratio', 0.2)
+    split_idx = int(len(df) * (1 - test_ratio))
+    df_train = df.iloc[:split_idx].reset_index(drop=True)
+    df_test = df.iloc[split_idx:].reset_index(drop=True)
+    logger.info('Train rows: %d, Test rows: %d', len(df_train), len(df_test))
 
-    # 5. 构造动作噪声
+    # 5. 并行环境数量
+    n_envs = cfg['train'].get('n_envs', 4)
+    logger.info('Using %d parallel environments', n_envs)
+
+    # 6. 构造并行训练环境
+    def make_env(rank):
+        def _init():
+            env = AShareEnv(df_train, cfg['env'])
+            return Monitor(env)
+        return _init
+
+    envs = SubprocVecEnv([make_env(i) for i in range(n_envs)])
+
+    # 7. 构造动作噪声
     noise = NormalActionNoise(
-        mean=np.zeros(env.action_space.shape),
-        sigma=cfg['model']['action_noise_sigma'] * np.ones(env.action_space.shape)
+        mean=np.zeros(envs.action_space.shape),
+        sigma=cfg['model']['action_noise_sigma'] * np.ones(envs.action_space.shape)
     )
 
-    # 6. 初始化模型
+    # 8. 初始化模型
     model = DDPG(
         'MlpPolicy',
-        env,
+        envs,
         gamma=cfg['model']['gamma'],
         learning_rate=cfg['model']['learning_rate'],
         buffer_size=cfg['model']['buffer_size'],
@@ -83,28 +103,27 @@ def main():
     os.makedirs(cfg['train']['checkpoint_dir'], exist_ok=True)
     os.makedirs(os.path.join(base_dir, 'models'), exist_ok=True)
 
-    # 7. 检查点回调
+    # 9. 回调配置
     checkpoint_cb = CheckpointCallback(
         save_freq=cfg['train']['save_freq'],
         save_path=cfg['train']['checkpoint_dir'],
         name_prefix='rl'
     )
-
-    # 8. 配置 NaN 停止回调
     nan_cb = NaNRewardStopper(verbose=1)
 
-    # 9. 开始训练，log_interval=1 每个 episode 打印日志
-    logger.info('Starting training')
+    # 10. 开始训练
+    logger.info('Starting training for %d timesteps', cfg['train']['total_timesteps'])
     model.learn(
         total_timesteps=cfg['train']['total_timesteps'],
         callback=[checkpoint_cb, nan_cb],
         log_interval=1
     )
 
-    # 10. 保存最终模型
+    # 11. 保存最终模型
     final_path = os.path.join(base_dir, 'models', 'final_model.zip')
     model.save(final_path)
     logger.info('Training completed, model saved to %s', final_path)
+
 
 if __name__ == '__main__':
     main()

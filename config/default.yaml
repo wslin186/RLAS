@@ -10,6 +10,12 @@ data:
       - "000001.SZ"
   # 数据周期：D（日线）、15min、30min 等
   time_frame: "D"
+  #测试占比
+  test_ratio: 0.2
+  # 窗口大小，默认整段
+  eval_window: 200
+  # 步长，默认窗口大小
+  eval_stride: 200
 
 env:
   # 观测窗口大小
@@ -25,7 +31,7 @@ model:
   # 折扣因子
   gamma: 0.99
   # 学习率
-  learning_rate: 0.0003
+  learning_rate: 0.00003
   # 经验回放池大小
   buffer_size: 100000
   # 批量大小
@@ -37,10 +43,12 @@ model:
 
 train:
   # 训练总步数
-  total_timesteps: 10000
+  total_timesteps: 1000000
   # 检查点保存频率（步数）
   save_freq: 100000
   # 检查点文件存放目录
   checkpoint_dir: "models/checkpoints"
   # 日志文件
   log_file: "logs/train.log"
+  # 新增并行环境数量
+  n_envs: 4
