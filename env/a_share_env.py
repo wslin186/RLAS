@@ -50,17 +50,14 @@ class AShareEnv(gym.Env):
         返回 obs, info（Gymnasium API）。
         """
         super().reset(seed=seed)
-        # 随机起点或固定起点
         if random_start:
             self.current_step = np.random.randint(self.window_size, len(self.raw_data))
         else:
             self.current_step = self.window_size
-        # 初始化资金和持仓
         self.cash = self.initial_cash
         self.shares = 0.0
         self.total_value = self.cash
         self._ep_reward = 0.0
-
         obs = self._get_obs()
         return obs, {}
 
@@ -83,6 +80,7 @@ class AShareEnv(gym.Env):
     def step(self, action):
         """
         执行动作，更新状态，返回 obs, reward, terminated, truncated, info
+        其中 info['trade'] 包含交易明细
         """
         # 1) 解包并限制 action
         pct = float(action[0])
@@ -125,11 +123,22 @@ class AShareEnv(gym.Env):
         # 8) 生成 obs
         obs = self._get_obs() if not done else np.zeros(self.observation_space.shape, dtype=np.float32)
 
-        # 9) episode 信息
-        info = {}
+        # 9) 构造 info 包含交易细节和 episode 信息
+        info = {
+            'trade': {
+                'step': self.current_step - 1,
+                'price': price,
+                'shares_delta': shares_delta,
+                'trade_amount': trade_amount,
+                'cost': cost,
+                'cash_after': self.cash,
+                'shares_after': self.shares,
+                'total_value': self.total_value,
+            }
+        }
         if done:
             ep_len = self.current_step - self.window_size
-            info = {'episode': {'r': float(self._ep_reward), 'l': ep_len}}
+            info['episode'] = {'r': float(self._ep_reward), 'l': ep_len}
 
         return obs, reward, terminated, truncated, info
 

@@ -7,7 +7,7 @@ data:
   end_date:   "20241231"
   # 标的列表，支持多只股票，例如：["000001.SZ", "600000.SH"]
   tickers:
-      - "000001.SZ"
+      - "600990.SH"
   # 数据周期：D（日线）、15min、30min 等
   time_frame: "D"
   #测试占比
@@ -28,22 +28,24 @@ env:
   slippage: 0.0001
 
 model:
-  # 折扣因子
-  gamma: 0.99
-  # 学习率
-  learning_rate: 0.00003
-  # 经验回放池大小
+  # 折扣因子  0.95 ~ 0.999
+  gamma: 0.98
+  # 学习率	1e-4 ~ 3e-3
+  learning_rate: 0.0001
+  # 经验回放池大小   	1e5 ~ 1e6
   buffer_size: 100000
-  # 批量大小
+  # 批量大小  64 / 128 / 256
   batch_size: 256
-  # 软更新系数
+  # 软更新系数	0.001 ~ 0.01
   tau: 0.005
-  # 动作噪声标准差
+  # 动作噪声标准差   	0.05 ~ 0.3
   action_noise_sigma: 0.1
 
 train:
+  #种子
+  seed: 12345
   # 训练总步数
-  total_timesteps: 1000000
+  total_timesteps: 100000
   # 检查点保存频率（步数）
   save_freq: 100000
   # 检查点文件存放目录

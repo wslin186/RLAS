@@ -2,8 +2,10 @@
 # scripts/train.py
 
 import os
+import random
 import yaml
 import numpy as np
+import torch
 from stable_baselines3 import DDPG
 from stable_baselines3.common.noise import NormalActionNoise
 from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
@@ -22,13 +24,10 @@ class NaNRewardStopper(BaseCallback):
         super().__init__(verbose)
 
     def _on_step(self) -> bool:
-        # rewards can be a numpy array when using VecEnv
         rewards = self.locals.get('rewards', None)
         if rewards is None:
             return True
-        # convert to numpy array
         rewards_arr = np.array(rewards)
-        # check if any is nan or inf
         if np.any(np.isnan(rewards_arr)) or np.any(np.isinf(rewards_arr)):
             if self.verbose > 0:
                 print(f"[NaNRewardStopper] Stopping training: encountered rewards={rewards_arr}")
@@ -43,8 +42,19 @@ def main():
     with open(cfg_path, 'r', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
 
-    # 2. 日志初始化
-    logger = setup_logger('train', cfg['train']['log_file'])
+    # 2. 设置随机种子
+    seed = cfg['train'].get('seed', 0)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    # 初始化 Logger（只调用一次）
+    logger = setup_logger('train', cfg['train']['log_file'])  # initialize logger once
+    logger.info(f"Random seed set to {seed}")
+    logger.info('Configuration loaded from %s', cfg_path)
+    logger.info(f"Random seed set to {seed}")
     logger.info('Configuration loaded from %s', cfg_path)
 
     # 3. 数据加载与特征工程
@@ -77,7 +87,6 @@ def main():
             env = AShareEnv(df_train, cfg['env'])
             return Monitor(env)
         return _init
-
     envs = SubprocVecEnv([make_env(i) for i in range(n_envs)])
 
     # 7. 构造动作噪声
@@ -116,14 +125,13 @@ def main():
     model.learn(
         total_timesteps=cfg['train']['total_timesteps'],
         callback=[checkpoint_cb, nan_cb],
-        log_interval=1
+        log_interval=4
     )
 
     # 11. 保存最终模型
     final_path = os.path.join(base_dir, 'models', 'final_model.zip')
     model.save(final_path)
     logger.info('Training completed, model saved to %s', final_path)
-
 
 if __name__ == '__main__':
     main()
